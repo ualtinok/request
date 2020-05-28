@@ -2,9 +2,8 @@
 
 var http = require('http')
 var https = require('https')
-var url = require('url')
+var url = require('fast-url-parser');
 var util = require('util')
-var stream = require('stream')
 var zlib = require('zlib')
 var aws2 = require('aws-sign2')
 var aws4 = require('aws4')
@@ -14,11 +13,9 @@ var caseless = require('caseless')
 var ForeverAgent = require('forever-agent')
 var FormData = require('form-data')
 var extend = require('extend')
-var isstream = require('isstream')
 var isTypedArray = require('is-typedarray').strict
 var helpers = require('./lib/helpers')
 var cookies = require('./lib/cookies')
-var getProxyFromURI = require('./lib/getProxyFromURI')
 var Querystring = require('./lib/querystring').Querystring
 var Har = require('./lib/har').Har
 var Auth = require('./lib/auth').Auth
@@ -31,7 +28,6 @@ var now = require('performance-now')
 var Buffer = require('safe-buffer').Buffer
 
 var safeStringify = helpers.safeStringify
-var isReadStream = helpers.isReadStream
 var toBase64 = helpers.toBase64
 var defer = helpers.defer
 var copy = helpers.copy
@@ -106,7 +102,6 @@ function Request (options) {
     options = self._har.options(options)
   }
 
-  stream.Stream.call(self)
   var reserved = Object.keys(Request.prototype)
   var nonReserved = filterForNonReserved(reserved, options)
 
@@ -121,13 +116,11 @@ function Request (options) {
   self._qs = new Querystring(self)
   self._auth = new Auth(self)
   self._oauth = new OAuth(self)
-  self._multipart = new Multipart(self)
+  //self._multipart = new Multipart(self)
   self._redirect = new Redirect(self)
-  self._tunnel = new Tunnel(self)
+  //self._tunnel = new Tunnel(self)
   self.init(options)
 }
-
-util.inherits(Request, stream.Stream)
 
 // Debugging
 Request.debug = process.env.NODE_DEBUG && /\brequest\b/.test(process.env.NODE_DEBUG)
@@ -271,10 +264,6 @@ Request.prototype.init = function (options) {
     // This error was fatal
     self.abort()
     return self.emit('error', new Error(message))
-  }
-
-  if (!self.hasOwnProperty('proxy')) {
-    self.proxy = getProxyFromURI(self.uri)
   }
 
   self.tunnel = self._tunnel.isEnabled()
@@ -438,7 +427,7 @@ Request.prototype.init = function (options) {
       }
     }
   }
-  if (self.body && !isstream(self.body)) {
+  if (self.body) {
     setContentLength()
   }
 
@@ -490,36 +479,6 @@ Request.prototype.init = function (options) {
     self.agent = self.agent || self.getNewAgent()
   }
 
-  self.on('pipe', function (src) {
-    if (self.ntick && self._started) {
-      self.emit('error', new Error('You cannot pipe to this stream after the outbound request has started.'))
-    }
-    self.src = src
-    if (isReadStream(src)) {
-      if (!self.hasHeader('content-type')) {
-        self.setHeader('content-type', mime.lookup(src.path))
-      }
-    } else {
-      if (src.headers) {
-        for (var i in src.headers) {
-          if (!self.hasHeader(i)) {
-            self.setHeader(i, src.headers[i])
-          }
-        }
-      }
-      if (self._json && !self.hasHeader('content-type')) {
-        self.setHeader('content-type', 'application/json')
-      }
-      if (src.method && !self.explicitMethod) {
-        self.method = src.method
-      }
-    }
-
-  // self.on('pipe', function () {
-  //   console.error('You have already piped to this stream. Pipeing twice is likely to break the request.')
-  // })
-  })
-
   defer(function () {
     if (self._aborted) {
       return
@@ -537,23 +496,16 @@ Request.prototype.init = function (options) {
         self._multipart.body.pipe(self)
       }
       if (self.body) {
-        if (isstream(self.body)) {
-          self.body.pipe(self)
+        setContentLength()
+        if (Array.isArray(self.body)) {
+          self.body.forEach(function (part) {
+            self.write(part)
+          })
         } else {
-          setContentLength()
-          if (Array.isArray(self.body)) {
-            self.body.forEach(function (part) {
-              self.write(part)
-            })
-          } else {
-            self.write(self.body)
-          }
-          self.end()
+          self.write(self.body)
         }
-      } else if (self.requestBodyStream) {
-        console.warn('options.requestBodyStream is deprecated, please pass the request object to stream.pipe.')
-        self.requestBodyStream.pipe(self)
-      } else if (!self.src) {
+        self.end()
+      }  else if (!self.src) {
         if (self._auth.hasAuth && !self._auth.sentAuth) {
           self.end()
           return
@@ -1463,26 +1415,6 @@ Request.prototype.jar = function (jar) {
   return self
 }
 
-// Stream API
-Request.prototype.pipe = function (dest, opts) {
-  var self = this
-
-  if (self.response) {
-    if (self._destdata) {
-      self.emit('error', new Error('You cannot pipe after data has been emitted from the response.'))
-    } else if (self._ended) {
-      self.emit('error', new Error('You cannot pipe after the response has been ended.'))
-    } else {
-      stream.Stream.prototype.pipe.call(self, dest, opts)
-      self.pipeDest(dest)
-      return dest
-    }
-  } else {
-    self.dests.push(dest)
-    stream.Stream.prototype.pipe.call(self, dest, opts)
-    return dest
-  }
-}
 Request.prototype.write = function () {
   var self = this
   if (self._aborted) { return }
