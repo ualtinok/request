@@ -270,7 +270,6 @@ Request.prototype.init = function (options) {
     return self.emit('error', new Error(message))
   }
 
-  self.tunnel = self._tunnel.isEnabled()
   if (self.proxy) {
     self._tunnel.setup(options)
   }
