@@ -4,6 +4,7 @@ var http = require('http')
 var https = require('https')
 var url = require('fast-url-parser');
 var util = require('util')
+var stream = require('stream')
 var zlib = require('zlib')
 var aws2 = require('aws-sign2')
 var aws4 = require('aws4')
@@ -102,6 +103,7 @@ function Request (options) {
     options = self._har.options(options)
   }
 
+  stream.Stream.call(self)
   var reserved = Object.keys(Request.prototype)
   var nonReserved = filterForNonReserved(reserved, options)
 
@@ -121,6 +123,8 @@ function Request (options) {
   //self._tunnel = new Tunnel(self)
   self.init(options)
 }
+
+util.inherits(Request, stream.Stream)
 
 // Debugging
 Request.debug = process.env.NODE_DEBUG && /\brequest\b/.test(process.env.NODE_DEBUG)
